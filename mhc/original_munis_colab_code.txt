@@ -1,0 +1,83 @@
+#@markdown ## 0. Run this code cell **ONCE** at the beginning when you initialize the runtime to download and install MUNIS.
+
+#@markdown ## Colab will ask you to restart the environment. After you restart, DO NOT rerun this cell, since everything has already been installed.
+
+#@markdown NOTE: feel free to ignore the version dependency errors outputted by this code cell.
+
+! git clone https://github.com/jwohlwend/munis
+%cd munis
+! pip install -r requirements.txt
+! pip install pytorch-lightning==2.0.2 fair-esm==2.0.0 biopython==1.84 wandb==0.18.2
+
+def hardcode_patch_checkpoint_loading():
+  file_path = "/content/munis/munis/model.py"
+  with open(file_path, "r") as f:
+      code = f.read()
+  code = code.replace("load_from_checkpoint(checkpoint)", "load_from_checkpoint(checkpoint, strict=False)")
+  with open(file_path, "w") as f:
+      f.write(code)
+
+hardcode_patch_checkpoint_loading()
+! pip install .
+%cd /content
+
+#@markdown ##1. Upload FASTA File
+#@markdown - If predicting on whole viral proteome, enter each viral protein as a separate FASTA entry line
+#@markdown - If predicting individual peptides, then enter each peptide as a separate FASTA line.
+#@markdown - Make sure the filename has no spaces or dots in it!
+#@markdown - **Below, upload a FASTA file containing protein sequences to run MUNIS on:**
+from google.colab import files
+print("Upload a FASTA file containing protein sequences to run MUNIS on:")
+upload_dict = files.upload()
+fasta_file = list(upload_dict.keys())[0]
+if fasta_file[-6:] != ".fasta":
+  raise ValueError("Please upload a FASTA file")
+
+
+#@markdown ##2. MUNIS Parameters
+#@markdown Enter a list of comma-separated MHC's to run predictions for.
+mhc_list='' #@param {type:"string"}
+
+#@markdown Enter the minimum peptide length (default: 8), supports >=8
+min_len = 8 #@param {type:"integer"}
+
+#@markdown Enter the maximum peptide length (default: 15), supports <=15
+max_len = 10 #@param {type:"integer"}
+
+#@markdown Use flanking residues
+#@markdown - Useful for full protein MUNIS to model antigen processing
+#@markdown -  Turn off for synthetic peptides - will show left/right flanks as "GGGGG" in output CSV
+use_flanks = False #@param {type:"boolean"}
+
+
+
+#@markdown ##3. Run MUNIS. This will take a few minutes.
+#@markdown If running with --use_flanks mode then it is expected to see a UserWarning that there are missing model state keys.
+%cd /content/munis
+import os
+import shlex
+
+fasta_path = os.path.join("/content", fasta_file)
+
+cmd = f'python predict.py --fasta {shlex.quote(fasta_path)} --mhc {mhc_list} --min_len {min_len} --max_len {max_len} --outdir /content'
+if use_flanks:
+  cmd += ' --use_flanks'
+
+print(f'Running MUNIS with command: {cmd}')
+!{cmd}
+
+%cd /content
+output_file = f'/content/{fasta_file[:-6]}_munis_predictions.csv'
+# if output file present print success
+if os.path.isfile(output_file):
+  print(f'MUNIS complete.')
+else:
+  raise ValueError(f'MUNIS failed to produce output file {output_file}')
+
+
+#@markdown ##4. Download MUNIS Output.
+#@markdown Run this cell to download the MUNIS output CSV.
+%cd /content
+from google.colab import files
+files.download(f'{fasta_file[:-6]}_munis_predictions.csv')
+
